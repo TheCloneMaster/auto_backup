@@ -22,7 +22,10 @@
 
 import xmlrpclib
 import socket
+import requests
 import os
+import shutil
+import functools
 import time
 import datetime
 import base64
@@ -151,15 +154,22 @@ password=passwordLogin)
                 conn = xmlrpclib.ServerProxy(uri + '/xmlrpc/db')
                 bkp=''
                 try:
-                    bkp = execute(conn, 'dump', tools.config['admin_passwd'], rec.name)
-                except:
+                    bkp_resp = requests.post(
+                        uri + '/web/database/backup', stream = True,
+                        data = {
+                            'master_pwd': tools.config['admin_passwd'],
+                            'name': rec.name,
+                            'backup_format': rec.backup_type
+                        }
+                    )
+                    bkp_resp.raise_for_status()                except:
                     logger.notifyChannel('backup', netsvc.LOG_INFO, "Couldn't backup database %s. Bad database administrator password for server running at http://%s:%s" %(rec.name, rec.host, rec.port))
                     continue
-                fp = open(file_path,'wb')
-                bkp = base64.decodestring(bkp)
-                fp.write(bkp)
-                fp.close()
-            else:
+                with open(file_path,'wb') as fp:
+                    # see https://github.com/kennethreitz/requests/issues/2155
+                    bkp_resp.raw.read = functools.partial(
+                        bkp_resp.raw.read, decode_content=True)
+                    shutil.copyfileobj(bkp_resp.raw, fp)            else:
                 logger.notifyChannel('backup', netsvc.LOG_INFO, "database %s doesn't exist on http://%s:%s" %(rec.name, rec.host, rec.port))
 
             #Check if user wants to write to SFTP or not.
